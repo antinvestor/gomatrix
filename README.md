@@ -1,5 +1,5 @@
 # gomatrix
-[![GoDoc](https://godoc.org/github.com/matrix-org/gomatrix?status.svg)](https://godoc.org/github.com/matrix-org/gomatrix)
+[![GoDoc](https://godoc.org/github.com/antinvestor/gomatrix?status.svg)](https://godoc.org/github.com/antinvestor/gomatrix)
 
 A Golang Matrix client.
 
@@ -25,11 +25,11 @@ Some general guidelines:
 
 If you intend to contribute to gomatrix you'll first need Go installed on your machine (version 1.12+ is required). Also, make sure to have golangci-lint properly set up since we use it for pre-commit hooks (for instructions on how to install it, check the [official docs](https://golangci-lint.run/usage/install/#local-installation)).
 
--   Fork gomatrix to your GitHub account by clicking the [Fork](https://github.com/matrix-org/gomatrix/fork) button.
+-   Fork gomatrix to your GitHub account by clicking the [Fork](https://github.com/antinvestor/gomatrix/fork) button.
 -   [Clone](https://help.github.com/en/articles/fork-a-repo#step-2-create-a-local-clone-of-your-fork) the main repository (not your fork) to your local machine.
 
         
-        $ git clone https://github.com/matrix-org/gomatrix
+        $ git clone https://github.com/antinvestor/gomatrix
         $ cd gomatrix
         
 
