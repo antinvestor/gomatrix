@@ -3,7 +3,7 @@ package gomatrix
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"testing"
 )
@@ -13,7 +13,7 @@ func TestClient_LeaveRoom(t *testing.T) {
 		if req.Method == "POST" && req.URL.Path == "/_matrix/client/r0/rooms/!foo:bar/leave" {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewBufferString(`{}`)),
+				Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
 			}, nil
 		}
 		return nil, fmt.Errorf("unhandled URL: %s", req.URL.Path)
@@ -29,7 +29,7 @@ func TestClient_GetAvatarUrl(t *testing.T) {
 		if req.Method == "GET" && req.URL.Path == "/_matrix/client/r0/profile/@user:test.gomatrix.org/avatar_url" {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewBufferString(`{"avatar_url":"mxc://matrix.org/iJaUjkshgdfsdkjfn"}`)),
+				Body:       io.NopCloser(bytes.NewBufferString(`{"avatar_url":"mxc://matrix.org/iJaUjkshgdfsdkjfn"}`)),
 			}, nil
 		}
 		return nil, fmt.Errorf("unhandled URL: %s", req.URL.Path)
@@ -50,7 +50,7 @@ func TestClient_SetAvatarUrl(t *testing.T) {
 		if req.Method == "PUT" && req.URL.Path == "/_matrix/client/r0/profile/@user:test.gomatrix.org/avatar_url" {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewBufferString(`{}`)),
+				Body:       io.NopCloser(bytes.NewBufferString(`{}`)),
 			}, nil
 		}
 		return nil, fmt.Errorf("unhandled URL: %s", req.URL.Path)
@@ -66,7 +66,7 @@ func TestClient_StateEvent(t *testing.T) {
 		if req.Method == "GET" && req.URL.Path == "/_matrix/client/r0/rooms/!foo:bar/state/m.room.name" {
 			return &http.Response{
 				StatusCode: 200,
-				Body:       ioutil.NopCloser(bytes.NewBufferString(`{"name":"Room Name Goes Here"}`)),
+				Body:       io.NopCloser(bytes.NewBufferString(`{"name":"Room Name Goes Here"}`)),
 			}, nil
 		}
 		return nil, fmt.Errorf("unhandled URL: %s", req.URL.Path)
@@ -89,7 +89,7 @@ func TestClient_PublicRooms(t *testing.T) {
 		if req.Method == "GET" && req.URL.Path == "/_matrix/client/r0/publicRooms" {
 			return &http.Response{
 				StatusCode: 200,
-				Body: ioutil.NopCloser(bytes.NewBufferString(`{
+				Body: io.NopCloser(bytes.NewBufferString(`{
   "chunk": [
     {
       "aliases": [

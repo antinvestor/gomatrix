@@ -3,7 +3,6 @@
 
 A Golang Matrix client.
 
-**THIS IS UNDER ACTIVE DEVELOPMENT: BREAKING CHANGES ARE FREQUENT.**
 
 # Contributing
 
