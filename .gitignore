@@ -26,3 +26,5 @@ _testmain.go
 
 # test editor files
 *.swp
+
+.idea/

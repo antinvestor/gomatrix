@@ -1,3 +1,3 @@
-module github.com/matrix-org/gomatrix
+module github.com/antinvestor/gomatrix
 
-go 1.12
+go 1.23
