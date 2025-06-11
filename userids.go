@@ -29,7 +29,7 @@ func escape(buf *bytes.Buffer, b byte) {
 }
 
 func shouldEncode(b byte) bool {
-	return b != '-' && b != '.' && b != '_' && !(b >= '0' && b <= '9') && !(b >= 'a' && b <= 'z') && !(b >= 'A' && b <= 'Z')
+	return b != '-' && b != '.' && b != '_' && (b < '0' || (b > '9' && b < 'A') || (b > 'Z' && b < 'a') || b > 'z')
 }
 
 func shouldEscape(b byte) bool {
@@ -51,7 +51,8 @@ func isValidEscapedChar(b byte) bool {
 // are encoded using leading underscores ("_"). Characters outside the aforementioned ranges
 // (including literal underscores ("_") and equals ("=")) are encoded as UTF8 code points (NOT NCRs)
 // and converted to lower-case hex with a leading "=". For example:
-//   Alph@Bet_50up  => _alph=40_bet=5f50up
+//
+//	Alph@Bet_50up  => _alph=40_bet=5f50up
 func EncodeUserLocalpart(str string) string {
 	strBytes := []byte(str)
 	var outputBuffer bytes.Buffer
@@ -73,7 +74,9 @@ func EncodeUserLocalpart(str string) string {
 //
 // This decodes quoted-printable bytes back into UTF8, and unescapes casing. For
 // example:
-//  _alph=40_bet=5f50up  =>  Alph@Bet_50up
+//
+//	_alph=40_bet=5f50up  =>  Alph@Bet_50up
+//
 // Returns an error if the input string contains characters outside the
 // range "a-z0-9._=-", has an invalid quote-printable byte (e.g. not hex), or has
 // an invalid _ escaped byte (e.g. "_5").
@@ -83,25 +86,26 @@ func DecodeUserLocalpart(str string) (string, error) {
 	for i := 0; i < len(strBytes); i++ {
 		b := strBytes[i]
 		if !isValidByte(b) {
-			return "", fmt.Errorf("Byte pos %d: Invalid byte", i)
+			return "", fmt.Errorf("byte pos %d: Invalid byte", i)
 		}
 
-		if b == '_' { // next byte is a-z and should be upper-case or is another _ and should be a literal _
+		switch b {
+		case '_':
 			if i+1 >= len(strBytes) {
-				return "", fmt.Errorf("Byte pos %d: expected _[a-z_] encoding but ran out of string", i)
+				return "", fmt.Errorf("byte pos %d: expected _[a-z_] encoding but ran out of string", i)
 			}
 			if !isValidEscapedChar(strBytes[i+1]) { // invalid escaping
-				return "", fmt.Errorf("Byte pos %d: expected _[a-z_] encoding", i)
+				return "", fmt.Errorf("byte pos %d: expected _[a-z_] encoding", i)
 			}
 			if strBytes[i+1] == '_' {
 				outputBuffer.WriteByte('_')
 			} else {
 				outputBuffer.WriteByte(strBytes[i+1] - 0x20) // ASCII shift a-z to A-Z
 			}
-			i++ // skip next byte since we just handled it
-		} else if b == '=' { // next 2 bytes are hex and should be buffered ready to be read as utf8
+			i++
+		case '=':
 			if i+2 >= len(strBytes) {
-				return "", fmt.Errorf("Byte pos: %d: expected quote-printable encoding but ran out of string", i)
+				return "", fmt.Errorf("byte pos: %d: expected quote-printable encoding but ran out of string", i)
 			}
 			dst := make([]byte, 1)
 			_, err := hex.Decode(dst, strBytes[i+1:i+3])
@@ -109,8 +113,8 @@ func DecodeUserLocalpart(str string) (string, error) {
 				return "", err
 			}
 			outputBuffer.WriteByte(dst[0])
-			i += 2 // skip next 2 bytes since we just handled it
-		} else { // pass through
+			i += 2
+		default:
 			outputBuffer.WriteByte(b)
 		}
 	}

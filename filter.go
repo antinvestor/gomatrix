@@ -16,8 +16,8 @@ package gomatrix
 
 import "errors"
 
-//Filter is used by clients to specify how the server should filter responses to e.g. sync requests
-//Specified by: https://matrix.org/docs/spec/client_server/r0.2.0.html#filtering
+// Filter is used by clients to specify how the server should filter responses to e.g. sync requests
+// Specified by: https://matrix.org/docs/spec/client_server/r0.2.0.html#filtering
 type Filter struct {
 	AccountData FilterPart `json:"account_data,omitempty"`
 	EventFields []string   `json:"event_fields,omitempty"`
@@ -52,7 +52,7 @@ type FilterPart struct {
 // Validate checks if the filter contains valid property values
 func (filter *Filter) Validate() error {
 	if filter.EventFormat != "client" && filter.EventFormat != "federation" {
-		return errors.New("Bad event_format value. Must be one of [\"client\", \"federation\"]")
+		return errors.New("bad event_format value. Must be one of [\"client\", \"federation\"]")
 	}
 	return nil
 }

@@ -1,21 +1,27 @@
-run:
-  timeout: 5m
-  linters:
-    enable:
-      - vet
-      - vetshadow
-      - typecheck
-      - deadcode
-      - gocyclo
-      - golint
-      - varcheck
-      - structcheck
-      - maligned
-      - ineffassign
-      - misspell
-      - unparam
-      - goimports
-      - goconst
-      - unconvert
-      - errcheck
-      - interfacer
+version: "2"
+linters:
+  enable:
+    - gocyclo
+    - misspell
+    - unconvert
+    - unparam
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

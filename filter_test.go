@@ -71,7 +71,7 @@ func TestFilterValidate(t *testing.T) {
 		t.Fatalf("TestFilterValidate: Filter validation has failed, event_format: '%s'", f.EventFormat)
 	}
 	// test validation fail
-	f.EventFormat = "unkown"
+	f.EventFormat = "unknown"
 	err = f.Validate()
 	if err == nil {
 		t.Fatalf("TestFilterValidate: Filter validation false positive, event_format: '%s'", f.EventFormat)

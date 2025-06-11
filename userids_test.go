@@ -17,7 +17,7 @@ var useridtests = []struct {
 	{"hello-world.", "hello-world."},            // allowed punctuation
 	{"5+5=10", "5=2b5=3d10"},                    // equals sign
 	{"東方Project", "=e6=9d=b1=e6=96=b9_project"}, // CJK mixed
-	{"	foo bar", "=09foo=20bar"}, // whitespace (tab and space)
+	{"	foo bar", "=09foo=20bar"},                // whitespace (tab and space)
 }
 
 func TestEncodeUserLocalpart(t *testing.T) {
