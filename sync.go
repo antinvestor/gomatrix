@@ -31,7 +31,7 @@ type DefaultSyncer struct {
 // OnEventListener can be used with DefaultSyncer.OnEventType to be informed of incoming events.
 type OnEventListener func(*Event)
 
-// NewDefaultSyncer returns an instantiated DefaultSyncer
+// NewDefaultSyncer returns an instantiated DefaultSyncer.
 func NewDefaultSyncer(userID string, store Storer) *DefaultSyncer {
 	return &DefaultSyncer{
 		UserID:    userID,
@@ -44,12 +44,18 @@ func NewDefaultSyncer(userID string, store Storer) *DefaultSyncer {
 // unrepeating events. Returns a fatal error if a listener panics.
 func (s *DefaultSyncer) ProcessResponse(res *RespSync, since string) (err error) {
 	if !s.shouldProcessResponse(res, since) {
-		return
+		return err
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("ProcessResponse panicked! userID=%s since=%s panic=%s\n%s", s.UserID, since, r, debug.Stack())
+			err = fmt.Errorf(
+				"ProcessResponse panicked! userID=%s since=%s panic=%s\n%s",
+				s.UserID,
+				since,
+				r,
+				debug.Stack(),
+			)
 		}
 	}()
 
@@ -87,7 +93,7 @@ func (s *DefaultSyncer) ProcessResponse(res *RespSync, since string) (err error)
 			}
 		}
 	}
-	return
+	return err
 }
 
 // OnEventType allows callers to be notified when there are new events for the given event type.
@@ -137,7 +143,7 @@ func (s *DefaultSyncer) shouldProcessResponse(resp *RespSync, since string) bool
 	return true
 }
 
-// getOrCreateRoom must only be called by the Sync() goroutine which calls ProcessResponse()
+// getOrCreateRoom must only be called by the Sync() goroutine which calls ProcessResponse().
 func (s *DefaultSyncer) getOrCreateRoom(roomID string) *Room {
 	room := s.Store.LoadRoom(roomID)
 	if room == nil { // create a new Room

@@ -24,10 +24,10 @@ type Event struct {
 func (event *Event) Body() (body string, ok bool) {
 	value, exists := event.Content["body"]
 	if !exists {
-		return
+		return body, ok
 	}
 	body, ok = value.(string)
-	return
+	return body, ok
 }
 
 // MessageType returns the value of the "msgtype" key in the event content if
@@ -35,10 +35,10 @@ func (event *Event) Body() (body string, ok bool) {
 func (event *Event) MessageType() (msgtype string, ok bool) {
 	value, exists := event.Content["msgtype"]
 	if !exists {
-		return
+		return msgtype, ok
 	}
 	msgtype, ok = value.(string)
-	return
+	return msgtype, ok
 }
 
 // TextMessage is the contents of a Matrix formated message event.
@@ -86,7 +86,7 @@ type VideoMessage struct {
 	Info    VideoInfo `json:"info"`
 }
 
-// ImageMessage is an m.image event
+// ImageMessage is an m.image event.
 type ImageMessage struct {
 	MsgType string    `json:"msgtype"`
 	Body    string    `json:"body"`
@@ -105,7 +105,7 @@ type HTMLMessage struct {
 // FileInfo contains info about an file - http://matrix.org/docs/spec/client_server/r0.2.0.html#m-file
 type FileInfo struct {
 	Mimetype string `json:"mimetype,omitempty"`
-	Size     uint   `json:"size,omitempty"` //filesize in bytes
+	Size     uint   `json:"size,omitempty"` // filesize in bytes
 }
 
 // FileMessage is an m.file event - http://matrix.org/docs/spec/client_server/r0.2.0.html#m-file
@@ -131,8 +131,8 @@ type LocationMessage struct {
 // AudioInfo contains info about an file - http://matrix.org/docs/spec/client_server/r0.2.0.html#m-audio
 type AudioInfo struct {
 	Mimetype string `json:"mimetype,omitempty"`
-	Size     uint   `json:"size,omitempty"`     //filesize in bytes
-	Duration uint   `json:"duration,omitempty"` //audio duration in ms
+	Size     uint   `json:"size,omitempty"`     // filesize in bytes
+	Duration uint   `json:"duration,omitempty"` // audio duration in ms
 }
 
 // AudioMessage is an m.audio event - http://matrix.org/docs/spec/client_server/r0.2.0.html#m-audio

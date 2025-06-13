@@ -201,7 +201,7 @@ type RespSync struct {
 	} `json:"rooms"`
 }
 
-// RespTurnServer is the JSON response from a Turn Server
+// RespTurnServer is the JSON response from a Turn Server.
 type RespTurnServer struct {
 	Username string   `json:"username"`
 	Password string   `json:"password"`

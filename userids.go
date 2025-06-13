@@ -18,7 +18,7 @@ func encode(buf *bytes.Buffer, b byte) {
 	buf.WriteByte(lowerhex[b&0x0f])
 }
 
-// escape the given alpha character and writes it to the buffer
+// escape the given alpha character and writes it to the buffer.
 func escape(buf *bytes.Buffer, b byte) {
 	buf.WriteByte('_')
 	if b == '_' {

@@ -26,7 +26,7 @@ type Filter struct {
 	Room        RoomFilter `json:"room,omitempty"`
 }
 
-// RoomFilter is used to define filtering rules for room events
+// RoomFilter is used to define filtering rules for room events.
 type RoomFilter struct {
 	AccountData  FilterPart `json:"account_data,omitempty"`
 	Ephemeral    FilterPart `json:"ephemeral,omitempty"`
@@ -37,7 +37,7 @@ type RoomFilter struct {
 	Timeline     FilterPart `json:"timeline,omitempty"`
 }
 
-// FilterPart is used to define filtering rules for specific categories of events
+// FilterPart is used to define filtering rules for specific categories of events.
 type FilterPart struct {
 	NotRooms    []string `json:"not_rooms,omitempty"`
 	Rooms       []string `json:"rooms,omitempty"`
@@ -49,7 +49,7 @@ type FilterPart struct {
 	ContainsURL *bool    `json:"contains_url,omitempty"`
 }
 
-// Validate checks if the filter contains valid property values
+// Validate checks if the filter contains valid property values.
 func (filter *Filter) Validate() error {
 	if filter.EventFormat != "client" && filter.EventFormat != "federation" {
 		return errors.New("bad event_format value. Must be one of [\"client\", \"federation\"]")
@@ -57,7 +57,7 @@ func (filter *Filter) Validate() error {
 	return nil
 }
 
-// DefaultFilter returns the default filter used by the Matrix server if no filter is provided in the request
+// DefaultFilter returns the default filter used by the Matrix server if no filter is provided in the request.
 func DefaultFilter() Filter {
 	return Filter{
 		AccountData: DefaultFilterPart(),
@@ -76,7 +76,7 @@ func DefaultFilter() Filter {
 	}
 }
 
-// DefaultFilterPart returns the default filter part used by the Matrix server if no filter is provided in the request
+// DefaultFilterPart returns the default filter part used by the Matrix server if no filter is provided in the request.
 func DefaultFilterPart() FilterPart {
 	return FilterPart{
 		NotRooms:   nil,

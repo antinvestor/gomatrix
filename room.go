@@ -6,7 +6,7 @@ type Room struct {
 	State map[string]map[string]*Event
 }
 
-// PublicRoom represents the information about a public room obtainable from the room directory
+// PublicRoom represents the information about a public room obtainable from the room directory.
 type PublicRoom struct {
 	CanonicalAlias   string   `json:"canonical_alias"`
 	Name             string   `json:"name"`
@@ -53,7 +53,7 @@ func (room Room) GetMembershipState(userID string) string {
 	return state
 }
 
-// NewRoom creates a new Room with the given ID
+// NewRoom creates a new Room with the given ID.
 func NewRoom(roomID string) *Room {
 	// Init the State map and return a pointer to the Room
 	return &Room{

@@ -13,12 +13,12 @@ type UserIdentifier struct {
 	User   string `json:"user"`
 }
 
-// Type implements the Identifier interface
+// Type implements the Identifier interface.
 func (i UserIdentifier) Type() string {
 	return "m.id.user"
 }
 
-// NewUserIdentifier creates a new UserIdentifier with IDType set to "m.id.user"
+// NewUserIdentifier creates a new UserIdentifier with IDType set to "m.id.user".
 func NewUserIdentifier(user string) UserIdentifier {
 	return UserIdentifier{
 		IDType: "m.id.user",
@@ -33,12 +33,12 @@ type ThirdpartyIdentifier struct {
 	Address string `json:"address"`
 }
 
-// Type implements the Identifier interface
+// Type implements the Identifier interface.
 func (i ThirdpartyIdentifier) Type() string {
 	return "m.id.thirdparty"
 }
 
-// NewThirdpartyIdentifier creates a new UserIdentifier with IDType set to "m.id.user"
+// NewThirdpartyIdentifier creates a new UserIdentifier with IDType set to "m.id.user".
 func NewThirdpartyIdentifier(medium, address string) ThirdpartyIdentifier {
 	return ThirdpartyIdentifier{
 		IDType:  "m.id.thirdparty",
@@ -54,12 +54,12 @@ type PhoneIdentifier struct {
 	Phone   string `json:"phone"`
 }
 
-// Type implements the Identifier interface
+// Type implements the Identifier interface.
 func (i PhoneIdentifier) Type() string {
 	return "m.id.phone"
 }
 
-// NewPhoneIdentifier creates a new UserIdentifier with IDType set to "m.id.user"
+// NewPhoneIdentifier creates a new UserIdentifier with IDType set to "m.id.user".
 func NewPhoneIdentifier(country, phone string) PhoneIdentifier {
 	return PhoneIdentifier{
 		IDType:  "m.id.phone",

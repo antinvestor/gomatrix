@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// sample from docs
+// sample from docs.
 var testFilter = `
 {
   "room": {
