@@ -1,4 +1,4 @@
-package gomatrix
+package gomatrix_test
 
 import (
 	"bytes"
@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"testing"
+
+	"github.com/antinvestor/gomatrix"
 )
 
 func TestClient_LeaveRoom(t *testing.T) {
@@ -134,12 +136,12 @@ func TestClient_PublicRooms(t *testing.T) {
 	}
 }
 
-func mockClient(fn func(*http.Request) (*http.Response, error)) *Client {
+func mockClient(fn func(*http.Request) (*http.Response, error)) *gomatrix.Client {
 	mrt := MockRoundTripper{
 		RT: fn,
 	}
 
-	cli, _ := NewClient("https://test.gomatrix.org", "@user:test.gomatrix.org", "abcdef")
+	cli, _ := gomatrix.NewClient("https://test.gomatrix.org", "@user:test.gomatrix.org", "abcdef")
 	cli.Client = &http.Client{
 		Transport: mrt,
 	}

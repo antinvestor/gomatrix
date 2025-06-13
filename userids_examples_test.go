@@ -1,15 +1,19 @@
-package gomatrix
+package gomatrix_test
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/antinvestor/gomatrix"
+)
 
 func ExampleEncodeUserLocalpart() {
-	localpart := EncodeUserLocalpart("Alph@Bet_50up")
+	localpart := gomatrix.EncodeUserLocalpart("Alph@Bet_50up")
 	fmt.Println(localpart)
 	// Output: _alph=40_bet__50up
 }
 
 func ExampleDecodeUserLocalpart() {
-	localpart, err := DecodeUserLocalpart("_alph=40_bet__50up")
+	localpart, err := gomatrix.DecodeUserLocalpart("_alph=40_bet__50up")
 	if err != nil {
 		panic(err)
 	}
@@ -18,7 +22,7 @@ func ExampleDecodeUserLocalpart() {
 }
 
 func ExampleExtractUserLocalpart() {
-	localpart, err := ExtractUserLocalpart("@alice:matrix.org")
+	localpart, err := gomatrix.ExtractUserLocalpart("@alice:matrix.org")
 	if err != nil {
 		panic(err)
 	}

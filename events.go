@@ -21,23 +21,23 @@ type Event struct {
 
 // Body returns the value of the "body" key in the event content if it is
 // present and is a string.
-func (event *Event) Body() (body string, ok bool) {
+func (event *Event) Body() (string, bool) {
 	value, exists := event.Content["body"]
 	if !exists {
-		return body, ok
+		return "", false
 	}
-	body, ok = value.(string)
+	body, ok := value.(string)
 	return body, ok
 }
 
 // MessageType returns the value of the "msgtype" key in the event content if
 // it is present and is a string.
-func (event *Event) MessageType() (msgtype string, ok bool) {
+func (event *Event) MessageType() (string, bool) {
 	value, exists := event.Content["msgtype"]
 	if !exists {
-		return msgtype, ok
+		return "", false
 	}
-	msgtype, ok = value.(string)
+	msgtype, ok := value.(string)
 	return msgtype, ok
 }
 

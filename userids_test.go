@@ -1,9 +1,12 @@
-package gomatrix
+package gomatrix_test
 
 import (
 	"testing"
+
+	"github.com/antinvestor/gomatrix"
 )
 
+//nolint:gochecknoglobals // Global test fixtures are a common pattern in Go tests for readability
 var useridtests = []struct {
 	Input  string
 	Output string
@@ -22,7 +25,7 @@ var useridtests = []struct {
 
 func TestEncodeUserLocalpart(t *testing.T) {
 	for _, u := range useridtests {
-		out := EncodeUserLocalpart(u.Input)
+		out := gomatrix.EncodeUserLocalpart(u.Input)
 		if out != u.Output {
 			t.Fatalf("TestEncodeUserLocalpart(%s) => Got: %s Expected: %s", u.Input, out, u.Output)
 		}
@@ -31,13 +34,14 @@ func TestEncodeUserLocalpart(t *testing.T) {
 
 func TestDecodeUserLocalpart(t *testing.T) {
 	for _, u := range useridtests {
-		in, _ := DecodeUserLocalpart(u.Output)
+		in, _ := gomatrix.DecodeUserLocalpart(u.Output)
 		if in != u.Input {
 			t.Fatalf("TestDecodeUserLocalpart(%s) => Got: %s Expected: %s", u.Output, in, u.Input)
 		}
 	}
 }
 
+//nolint:gochecknoglobals // Test fixtures defined at package level for test case reuse
 var errtests = []struct {
 	Input string
 }{
@@ -53,7 +57,7 @@ var errtests = []struct {
 
 func TestDecodeUserLocalpartErrors(t *testing.T) {
 	for _, u := range errtests {
-		out, err := DecodeUserLocalpart(u.Input)
+		out, err := gomatrix.DecodeUserLocalpart(u.Input)
 		if out != "" {
 			t.Fatalf("TestDecodeUserLocalpartErrors(%s) => Got: %s Expected: empty string", u.Input, out)
 		}
@@ -63,6 +67,7 @@ func TestDecodeUserLocalpartErrors(t *testing.T) {
 	}
 }
 
+//nolint:gochecknoglobals // Test table-driven approach with shared test cases
 var localparttests = []struct {
 	Input        string
 	ExpectOutput string
@@ -74,7 +79,7 @@ var localparttests = []struct {
 
 func TestExtractUserLocalpart(t *testing.T) {
 	for _, u := range localparttests {
-		out, err := ExtractUserLocalpart(u.Input)
+		out, err := gomatrix.ExtractUserLocalpart(u.Input)
 		if err != nil {
 			t.Errorf("TestExtractUserLocalpart(%s) => Error: %s", u.Input, err)
 			continue

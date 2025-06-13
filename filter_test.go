@@ -1,13 +1,17 @@
-package gomatrix
+package gomatrix_test
 
 import (
 	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/antinvestor/gomatrix"
 )
 
 // sample from docs.
+//
+//nolint:gochecknoglobals // Multi-line test fixture string used across test cases
 var testFilter = `
 {
   "room": {
@@ -61,7 +65,7 @@ var testFilter = `
 }`
 
 func TestFilterValidate(t *testing.T) {
-	var f Filter
+	var f gomatrix.Filter
 	err := json.NewDecoder(strings.NewReader(testFilter)).Decode(&f)
 	if err != nil {
 		t.Fatalf("TestFilterValidate: Failed to parse %s", testFilter)
@@ -79,8 +83,8 @@ func TestFilterValidate(t *testing.T) {
 }
 
 func TestDefaultFilter(t *testing.T) {
-	defaultFilter := DefaultFilter()
-	if reflect.TypeOf(defaultFilter) != reflect.TypeOf(Filter{}) {
+	defaultFilter := gomatrix.DefaultFilter()
+	if reflect.TypeOf(defaultFilter) != reflect.TypeOf(gomatrix.Filter{}) {
 		t.Fatal("TestDefaultFilter: Invalid type for default filter")
 	}
 	if defaultFilter.EventFormat != "client" {

@@ -16,6 +16,11 @@ package gomatrix
 
 import "errors"
 
+// DefaultFilterLimit is the default limit for event counts in filter.
+const (
+	DefaultFilterLimit = 20 // Default limit for event counts in filter
+)
+
 // Filter is used by clients to specify how the server should filter responses to e.g. sync requests
 // Specified by: https://matrix.org/docs/spec/client_server/r0.2.0.html#filtering
 type Filter struct {
@@ -81,7 +86,7 @@ func DefaultFilterPart() FilterPart {
 	return FilterPart{
 		NotRooms:   nil,
 		Rooms:      nil,
-		Limit:      20,
+		Limit:      DefaultFilterLimit,
 		NotSenders: nil,
 		NotTypes:   nil,
 		Senders:    nil,

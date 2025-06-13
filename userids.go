@@ -3,11 +3,18 @@ package gomatrix
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 )
 
-const lowerhex = "0123456789abcdef"
+// Constants for userID encoding/decoding.
+const (
+	ASCIILowerOffset  = 0x20 // ASCII offset to convert uppercase to lowercase (A-Z to a-z)
+	MatrixIDSeparator = ":"  // Separator used in Matrix IDs between parts
+	MatrixIDParts     = 2    // Number of parts expected in a Matrix user ID when split by ":"
+	lowerhex          = "0123456789abcdef"
+)
 
 // encode the given byte using quoted-printable encoding (e.g "=2f")
 // and writes it to the buffer
@@ -21,10 +28,10 @@ func encode(buf *bytes.Buffer, b byte) {
 // escape the given alpha character and writes it to the buffer.
 func escape(buf *bytes.Buffer, b byte) {
 	buf.WriteByte('_')
-	if b == '_' {
-		buf.WriteByte('_') // another _
+	if b >= 'A' && b <= 'Z' {
+		buf.WriteByte(b + ASCIILowerOffset) // ASCII shift A-Z to a-z
 	} else {
-		buf.WriteByte(b + 0x20) // ASCII shift A-Z to a-z
+		buf.WriteByte(b)
 	}
 }
 
@@ -57,15 +64,54 @@ func EncodeUserLocalpart(str string) string {
 	strBytes := []byte(str)
 	var outputBuffer bytes.Buffer
 	for _, b := range strBytes {
-		if shouldEncode(b) {
+		switch {
+		case shouldEncode(b):
 			encode(&outputBuffer, b)
-		} else if shouldEscape(b) {
+		case shouldEscape(b):
 			escape(&outputBuffer, b)
-		} else {
+		default:
 			outputBuffer.WriteByte(b)
 		}
 	}
 	return outputBuffer.String()
+}
+
+// processEscapedCharacter handles the processing of characters that were escaped with '_'
+// and returns the appropriate character to add to the output buffer.
+func processEscapedCharacter(strBytes []byte, i int) (byte, int, error) {
+	if i >= len(strBytes) {
+		return 0, i, errors.New("_ was the last character - it should be followed by something to escape")
+	}
+
+	// check the next byte is valid to escape
+	if !isValidEscapedChar(strBytes[i]) {
+		return 0, i, fmt.Errorf("cannot escape byte %v", strBytes[i])
+	}
+
+	// the next byte is a-z, so it may need to be shifted back up
+	if strBytes[i] >= 'a' && strBytes[i] <= 'z' {
+		return strBytes[i] - ASCIILowerOffset, i, nil // ASCII shift a-z to A-Z
+	}
+
+	// just copy the byte as-is
+	return strBytes[i], i, nil
+}
+
+// processHexEncodedCharacter handles decoding quoted-printable encoded bytes (e.g., "=40" -> "@")
+// and returns the decoded byte to add to the output buffer.
+func processHexEncodedCharacter(strBytes []byte, i int) (byte, int, error) {
+	if i+1 >= len(strBytes) {
+		return 0, i, errors.New("= was not followed by two hex digits")
+	}
+
+	dst := make([]byte, 1)
+	_, err := hex.Decode(dst, strBytes[i:i+2])
+	if err != nil {
+		return 0, i, err
+	}
+
+	// We consumed 2 bytes total
+	return dst[0], i + 1, nil
 }
 
 // DecodeUserLocalpart decodes the given string back into the original input string.
@@ -81,43 +127,44 @@ func EncodeUserLocalpart(str string) string {
 // range "a-z0-9._=-", has an invalid quote-printable byte (e.g. not hex), or has
 // an invalid _ escaped byte (e.g. "_5").
 func DecodeUserLocalpart(str string) (string, error) {
-	strBytes := []byte(str)
+	if str == "" {
+		return "", nil
+	}
+
 	var outputBuffer bytes.Buffer
+	strBytes := []byte(str)
+
 	for i := 0; i < len(strBytes); i++ {
 		b := strBytes[i]
 		if !isValidByte(b) {
-			return "", fmt.Errorf("byte pos %d: Invalid byte", i)
+			return "", fmt.Errorf("not a valid byte: %v", b)
 		}
+
+		var err error
+		var decodedByte byte
 
 		switch b {
 		case '_':
-			if i+1 >= len(strBytes) {
-				return "", fmt.Errorf("byte pos %d: expected _[a-z_] encoding but ran out of string", i)
-			}
-			if !isValidEscapedChar(strBytes[i+1]) { // invalid escaping
-				return "", fmt.Errorf("byte pos %d: expected _[a-z_] encoding", i)
-			}
-			if strBytes[i+1] == '_' {
-				outputBuffer.WriteByte('_')
-			} else {
-				outputBuffer.WriteByte(strBytes[i+1] - 0x20) // ASCII shift a-z to A-Z
-			}
 			i++
-		case '=':
-			if i+2 >= len(strBytes) {
-				return "", fmt.Errorf("byte pos: %d: expected quote-printable encoding but ran out of string", i)
-			}
-			dst := make([]byte, 1)
-			_, err := hex.Decode(dst, strBytes[i+1:i+3])
+			decodedByte, i, err = processEscapedCharacter(strBytes, i)
 			if err != nil {
 				return "", err
 			}
-			outputBuffer.WriteByte(dst[0])
-			i += 2
+			outputBuffer.WriteByte(decodedByte)
+
+		case '=':
+			i++
+			decodedByte, i, err = processHexEncodedCharacter(strBytes, i)
+			if err != nil {
+				return "", err
+			}
+			outputBuffer.WriteByte(decodedByte)
+
 		default:
 			outputBuffer.WriteByte(b)
 		}
 	}
+
 	return outputBuffer.String(), nil
 }
 
@@ -125,10 +172,13 @@ func DecodeUserLocalpart(str string) (string, error) {
 // See http://matrix.org/docs/spec/intro.html#user-identifiers
 func ExtractUserLocalpart(userID string) (string, error) {
 	if len(userID) == 0 || userID[0] != '@' {
-		return "", fmt.Errorf("%s is not a valid user id", userID)
+		return "", errors.New("user ID must start with '@'")
 	}
-	return strings.TrimPrefix(
-		strings.SplitN(userID, ":", 2)[0], // @foo:bar:8448 => [ "@foo", "bar:8448" ]
-		"@",                               // remove "@" prefix
-	), nil
+
+	parts := strings.SplitN(userID, MatrixIDSeparator, MatrixIDParts)
+	if len(parts) != MatrixIDParts {
+		return "", errors.New("user ID missing ':' separator")
+	}
+
+	return parts[0][1:], nil // @foo:bar:8448 => [ "@foo", "bar:8448" ]
 }

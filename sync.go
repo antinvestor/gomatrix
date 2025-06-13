@@ -9,7 +9,7 @@ import (
 
 // Syncer represents an interface that must be satisfied in order to do /sync requests on a client.
 type Syncer interface {
-	// Process the /sync response. The since parameter is the since= value that was used to produce the response.
+	// ProcessResponse Process the /sync response. The since parameter is the since= value that was used to produce the response.
 	// This is useful for detecting the very first sync (since=""). If an error is return, Syncing will be stopped
 	// permanently.
 	ProcessResponse(resp *RespSync, since string) error
@@ -18,6 +18,11 @@ type Syncer interface {
 	// GetFilterJSON for the given user ID. NOT the filter ID.
 	GetFilterJSON(userID string) json.RawMessage
 }
+
+// DefaultRetryTimeout Constants for sync-related operations.
+const (
+	DefaultRetryTimeout = 10 * time.Second // Default retry timeout after failed sync.
+)
 
 // DefaultSyncer is the default syncing implementation. You can either write your own syncer, or selectively
 // replace parts of this default syncer (e.g. the ProcessResponse method). The default syncer uses the observer
@@ -106,12 +111,42 @@ func (s *DefaultSyncer) OnEventType(eventType string, callback OnEventListener) 
 	s.listeners[eventType] = append(s.listeners[eventType], callback)
 }
 
-// shouldProcessResponse returns true if the response should be processed. May modify the response to remove
-// stuff that shouldn't be processed.
+// isJoinEventForUser checks if the given event is a room membership "join" event for the specified userID.
+func isJoinEventForUser(event *Event, userID string) bool {
+	if event.Type != "m.room.member" || event.StateKey == nil || *event.StateKey != userID {
+		return false
+	}
+
+	m, ok := event.Content["membership"]
+	if !ok {
+		return false
+	}
+
+	mship, ok := m.(string)
+	if !ok {
+		return false
+	}
+
+	return mship == "join"
+}
+
+// shouldProcessResponse returns true if the response should be processed.
+// We use the since parameter to detect if this is the first ever sync request.
+// If it's the first sync request, we don't have any state to process so return false.
+// We detect this by checking if the since token is empty.
+//
+// We also want to filter out events we've already processed.
+// We use the room ID timestamp marker to do this.
+//
+// There is also a bug in the /sync API which causes it to return both the current
+// and historical state for rooms you've JUST joined. This results in duplicates which
+// we wish to filter out. This is done by inspecting a list of recent events and
+// filtering out stuff that shouldn't be processed.
 func (s *DefaultSyncer) shouldProcessResponse(resp *RespSync, since string) bool {
 	if since == "" {
 		return false
 	}
+
 	// This is a horrible hack because /sync will return the most recent messages for a room
 	// as soon as you /join it. We do NOT want to process those events in that particular room
 	// because they may have already been processed (if you toggle the bot in/out of the room).
@@ -122,21 +157,15 @@ func (s *DefaultSyncer) shouldProcessResponse(resp *RespSync, since string) bool
 	for roomID, roomData := range resp.Rooms.Join {
 		for i := len(roomData.Timeline.Events) - 1; i >= 0; i-- {
 			e := roomData.Timeline.Events[i]
-			if e.Type == "m.room.member" && e.StateKey != nil && *e.StateKey == s.UserID {
-				m := e.Content["membership"]
-				mship, ok := m.(string)
-				if !ok {
+
+			if isJoinEventForUser(&e, s.UserID) {
+				_, roomExists := resp.Rooms.Join[roomID]
+				if !roomExists {
 					continue
 				}
-				if mship == "join" {
-					_, ok := resp.Rooms.Join[roomID]
-					if !ok {
-						continue
-					}
-					delete(resp.Rooms.Join, roomID)   // don't re-process messages
-					delete(resp.Rooms.Invite, roomID) // don't re-process invites
-					break
-				}
+				delete(resp.Rooms.Join, roomID)   // don't re-process messages
+				delete(resp.Rooms.Invite, roomID) // don't re-process invites
+				break
 			}
 		}
 	}
@@ -163,12 +192,13 @@ func (s *DefaultSyncer) notifyListeners(event *Event) {
 	}
 }
 
-// OnFailedSync always returns a 10 second wait period between failed /syncs, never a fatal error.
-func (s *DefaultSyncer) OnFailedSync(res *RespSync, err error) (time.Duration, error) {
-	return 10 * time.Second, nil
+// OnFailedSync is called when the matrix server returns a 'limited' response to the sync API call.
+// Return the time to wait before attempting another sync, or an error to give up syncing.
+func (s *DefaultSyncer) OnFailedSync(_ *RespSync, _ error) (time.Duration, error) {
+	return DefaultRetryTimeout, nil
 }
 
 // GetFilterJSON returns a filter with a timeline limit of 50.
-func (s *DefaultSyncer) GetFilterJSON(userID string) json.RawMessage {
+func (s *DefaultSyncer) GetFilterJSON(_ string) json.RawMessage {
 	return json.RawMessage(`{"room":{"timeline":{"limit":50}}}`)
 }

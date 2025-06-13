@@ -5,6 +5,7 @@ package gomatrix
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,17 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+// Constants for the Matrix Client.
+const (
+	DefaultSyncTimeout     = 30000           // Default timeout for sync requests in milliseconds (30s)
+	DefaultHTTPTimeout     = 5 * time.Second // Default HTTP request timeout
+	StatusCodeOK           = 200             // Standard HTTP OK status code
+	StatusCodeCreated      = 201             // Standard HTTP Created status code
+	StatusCodeAccepted     = 202             // Standard HTTP Accepted status code
+	StatusCode2xxOK        = 2               // First digit for 2xx HTTP status codes
+	StatusCodeUnauthorized = 401             // HTTP Unauthorized status code
 )
 
 // Client represents a Matrix client.
@@ -69,7 +81,7 @@ func (cli *Client) BuildBaseURL(urlPath ...string) string {
 	hsURL.Path = path.Join(parts...)
 	// Manually add the trailing slash back to the end of the path if it's explicitly needed
 	if strings.HasSuffix(urlPath[len(urlPath)-1], "/") {
-		hsURL.Path = hsURL.Path + "/"
+		hsURL.Path += "/"
 	}
 	query := hsURL.Query()
 	if cli.AppServiceUserID != "" {
@@ -130,7 +142,7 @@ func (cli *Client) Sync() error {
 	}
 
 	for {
-		resSync, err := cli.SyncRequest(30000, nextBatch, filterID, false, "")
+		resSync, err := cli.SyncRequest(DefaultSyncTimeout, nextBatch, filterID, false, "")
 		if err != nil {
 			duration, err2 := cli.Syncer.OnFailedSync(resSync, err)
 			if err2 != nil {
@@ -186,16 +198,20 @@ func (cli *Client) StopSync() {
 // an HTTPError which includes the returned HTTP status code, byte contents of the response body and possibly a
 // RespError as the WrappedError, if the HTTP body could be decoded as a RespError.
 func (cli *Client) MakeRequest(method string, httpURL string, reqBody interface{}, resBody interface{}) error {
+	// Create a context with timeout for HTTP requests
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultHTTPTimeout)
+	defer cancel()
+
 	var req *http.Request
 	var err error
 	if reqBody != nil {
 		buf := new(bytes.Buffer)
-		if err := json.NewEncoder(buf).Encode(reqBody); err != nil {
-			return err
+		if encErr := json.NewEncoder(buf).Encode(reqBody); encErr != nil {
+			return encErr
 		}
-		req, err = http.NewRequest(method, httpURL, buf)
+		req, err = http.NewRequestWithContext(ctx, method, httpURL, buf)
 	} else {
-		req, err = http.NewRequest(method, httpURL, nil)
+		req, err = http.NewRequestWithContext(ctx, method, httpURL, nil)
 	}
 
 	if err != nil {
@@ -215,10 +231,10 @@ func (cli *Client) MakeRequest(method string, httpURL string, reqBody interface{
 	if err != nil {
 		return err
 	}
-	if res.StatusCode/100 != 2 { // not 2xx
-		contents, err := io.ReadAll(res.Body)
-		if err != nil {
-			return err
+	if res.StatusCode/100 != StatusCode2xxOK { // not 2xx
+		contents, readErr := io.ReadAll(res.Body)
+		if readErr != nil {
+			return readErr
 		}
 
 		var wrap error
@@ -228,16 +244,11 @@ func (cli *Client) MakeRequest(method string, httpURL string, reqBody interface{
 		}
 
 		// If we failed to decode as RespError, don't just drop the HTTP body, include it in the
-		// HTTP error instead (e.g proxy errors which return HTML).
-		msg := "Failed to " + method + " JSON to " + req.URL.Path
-		if wrap == nil {
-			msg = msg + ": " + string(contents)
-		}
-
+		// HTTP error.
 		return HTTPError{
 			Contents:     contents,
 			Code:         res.StatusCode,
-			Message:      msg,
+			Message:      "Failed to " + method + " JSON to " + req.URL.Path,
 			WrappedError: wrap,
 		}
 	}
@@ -250,10 +261,11 @@ func (cli *Client) MakeRequest(method string, httpURL string, reqBody interface{
 }
 
 // CreateFilter makes an HTTP request according to http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-user-userid-filter
-func (cli *Client) CreateFilter(filter json.RawMessage) (resp *RespCreateFilter, err error) {
+func (cli *Client) CreateFilter(filter json.RawMessage) (*RespCreateFilter, error) {
 	urlPath := cli.BuildURL("user", cli.UserID, "filter")
-	err = cli.MakeRequest("POST", urlPath, &filter, &resp)
-	return resp, err
+	var resp RespCreateFilter
+	err := cli.MakeRequest("POST", urlPath, &filter, &resp)
+	return &resp, err
 }
 
 // SyncRequest makes an HTTP request according to http://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-sync
@@ -262,7 +274,7 @@ func (cli *Client) SyncRequest(
 	since, filterID string,
 	fullState bool,
 	setPresence string,
-) (resp *RespSync, err error) {
+) (*RespSync, error) {
 	query := map[string]string{
 		"timeout": strconv.Itoa(timeout),
 	}
@@ -279,24 +291,29 @@ func (cli *Client) SyncRequest(
 		query["full_state"] = "true"
 	}
 	urlPath := cli.BuildURLWithQuery([]string{"sync"}, query)
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespSync
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
-func (cli *Client) register(u string, req *ReqRegister) (resp *RespRegister, uiaResp *RespUserInteractive, err error) {
-	err = cli.MakeRequest("POST", u, req, &resp)
+func (cli *Client) register(u string, req *ReqRegister) (*RespRegister, *RespUserInteractive, error) {
+	var resp RespRegister
+	err := cli.MakeRequest("POST", u, req, &resp)
 	if err != nil {
-		httpErr, ok := err.(HTTPError)
-		if !ok { // network error
-			return resp, uiaResp, err
+		var httpErr HTTPError
+		if !errors.As(err, &httpErr) { // network error
+			return &resp, nil, err
 		}
-		if httpErr.Code == 401 {
+		if httpErr.Code == StatusCodeUnauthorized {
 			// body should be RespUserInteractive, if it isn't, fail with the error
+			var uiaResp RespUserInteractive
 			err = json.Unmarshal(httpErr.Contents, &uiaResp)
-			return resp, uiaResp, err
+			return &resp, &uiaResp, err
 		}
+		return &resp, nil, err
 	}
-	return resp, uiaResp, err
+
+	return &resp, nil, nil
 }
 
 // Register makes an HTTP request according to http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-register
@@ -357,37 +374,41 @@ func (cli *Client) RegisterDummy(req *ReqRegister) (*RespRegister, error) {
 
 // Login a user to the homeserver according to http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-login
 // This does not set credentials on this client instance. See SetCredentials() instead.
-func (cli *Client) Login(req *ReqLogin) (resp *RespLogin, err error) {
+func (cli *Client) Login(req *ReqLogin) (*RespLogin, error) {
 	urlPath := cli.BuildURL("login")
-	err = cli.MakeRequest("POST", urlPath, req, &resp)
-	return resp, err
+	var resp RespLogin
+	err := cli.MakeRequest("POST", urlPath, req, &resp)
+	return &resp, err
 }
 
 // Logout the current user. See http://matrix.org/docs/spec/client_server/r0.6.0.html#post-matrix-client-r0-logout
 // This does not clear the credentials from the client instance. See ClearCredentials() instead.
-func (cli *Client) Logout() (resp *RespLogout, err error) {
+func (cli *Client) Logout() (*RespLogout, error) {
 	urlPath := cli.BuildURL("logout")
-	err = cli.MakeRequest("POST", urlPath, nil, &resp)
-	return resp, err
+	var resp RespLogout
+	err := cli.MakeRequest("POST", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // LogoutAll logs the current user out on all devices. See https://matrix.org/docs/spec/client_server/r0.6.0#post-matrix-client-r0-logout-all
 // This does not clear the credentials from the client instance. See ClearCredentails() instead.
-func (cli *Client) LogoutAll() (resp *RespLogoutAll, err error) {
+func (cli *Client) LogoutAll() (*RespLogoutAll, error) {
 	urlPath := cli.BuildURL("logout/all")
-	err = cli.MakeRequest("POST", urlPath, nil, &resp)
-	return resp, err
+	var resp RespLogoutAll
+	err := cli.MakeRequest("POST", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // Versions returns the list of supported Matrix versions on this homeserver. See http://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-versions
-func (cli *Client) Versions() (resp *RespVersions, err error) {
+func (cli *Client) Versions() (*RespVersions, error) {
 	urlPath := cli.BuildBaseURL("_matrix", "client", "versions")
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespVersions
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // PublicRooms returns the list of public rooms on target server. See https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-unstable-publicrooms
-func (cli *Client) PublicRooms(limit int, since string, server string) (resp *RespPublicRooms, err error) {
+func (cli *Client) PublicRooms(limit int, since string, server string) (*RespPublicRooms, error) {
 	args := map[string]string{}
 
 	if limit != 0 {
@@ -401,8 +422,9 @@ func (cli *Client) PublicRooms(limit int, since string, server string) (resp *Re
 	}
 
 	urlPath := cli.BuildURLWithQuery([]string{"publicRooms"}, args)
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespPublicRooms
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // PublicRoomsFiltered returns a subset of PublicRooms filtered server side.
@@ -412,7 +434,7 @@ func (cli *Client) PublicRoomsFiltered(
 	since string,
 	server string,
 	filter string,
-) (resp *RespPublicRooms, err error) {
+) (*RespPublicRooms, error) {
 	content := map[string]string{}
 
 	if limit != 0 {
@@ -434,15 +456,16 @@ func (cli *Client) PublicRoomsFiltered(
 		})
 	}
 
-	err = cli.MakeRequest("POST", urlPath, content, &resp)
-	return resp, err
+	var resp RespPublicRooms
+	err := cli.MakeRequest("POST", urlPath, content, &resp)
+	return &resp, err
 }
 
 // JoinRoom joins the client to a room ID or alias. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-join-roomidoralias
 //
 // If serverName is specified, this will be added as a query param to instruct the homeserver to join via that server. If content is specified, it will
 // be JSON encoded and used as the request body.
-func (cli *Client) JoinRoom(roomIDorAlias, serverName string, content interface{}) (resp *RespJoinRoom, err error) {
+func (cli *Client) JoinRoom(roomIDorAlias, serverName string, content interface{}) (*RespJoinRoom, error) {
 	var urlPath string
 	if serverName != "" {
 		urlPath = cli.BuildURLWithQuery([]string{"join", roomIDorAlias}, map[string]string{
@@ -451,32 +474,34 @@ func (cli *Client) JoinRoom(roomIDorAlias, serverName string, content interface{
 	} else {
 		urlPath = cli.BuildURL("join", roomIDorAlias)
 	}
-	err = cli.MakeRequest("POST", urlPath, content, &resp)
-	return resp, err
+	var resp RespJoinRoom
+	err := cli.MakeRequest("POST", urlPath, content, &resp)
+	return &resp, err
 }
 
 // GetDisplayName returns the display name of the user from the specified MXID. See https://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-profile-userid-displayname
-func (cli *Client) GetDisplayName(mxid string) (resp *RespUserDisplayName, err error) {
+func (cli *Client) GetDisplayName(mxid string) (*RespUserDisplayName, error) {
 	urlPath := cli.BuildURL("profile", mxid, "displayname")
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespUserDisplayName
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // GetOwnDisplayName returns the user's display name. See https://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-profile-userid-displayname
-func (cli *Client) GetOwnDisplayName() (resp *RespUserDisplayName, err error) {
+func (cli *Client) GetOwnDisplayName() (*RespUserDisplayName, error) {
 	urlPath := cli.BuildURL("profile", cli.UserID, "displayname")
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespUserDisplayName
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // SetDisplayName sets the user's profile display name. See http://matrix.org/docs/spec/client_server/r0.2.0.html#put-matrix-client-r0-profile-userid-displayname
-func (cli *Client) SetDisplayName(displayName string) (err error) {
+func (cli *Client) SetDisplayName(displayName string) error {
 	urlPath := cli.BuildURL("profile", cli.UserID, "displayname")
 	s := struct {
 		DisplayName string `json:"displayname"`
 	}{displayName}
-	err = cli.MakeRequest("PUT", urlPath, &s, nil)
-	return err
+	return cli.MakeRequest("PUT", urlPath, &s, nil)
 }
 
 // GetAvatarURL gets the user's avatar URL. See http://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-profile-userid-avatar-url
@@ -509,26 +534,26 @@ func (cli *Client) SetAvatarURL(url string) error {
 }
 
 // GetStatus returns the status of the user from the specified MXID. See https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-presence-userid-status
-func (cli *Client) GetStatus(mxid string) (resp *RespUserStatus, err error) {
+func (cli *Client) GetStatus(mxid string) (*RespUserStatus, error) {
 	urlPath := cli.BuildURL("presence", mxid, "status")
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespUserStatus
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // GetOwnStatus returns the user's status. See https://matrix.org/docs/spec/client_server/r0.6.0#get-matrix-client-r0-presence-userid-status
-func (cli *Client) GetOwnStatus() (resp *RespUserStatus, err error) {
+func (cli *Client) GetOwnStatus() (*RespUserStatus, error) {
 	return cli.GetStatus(cli.UserID)
 }
 
 // SetStatus sets the user's status. See https://matrix.org/docs/spec/client_server/r0.6.0#put-matrix-client-r0-presence-userid-status
-func (cli *Client) SetStatus(presence, status string) (err error) {
+func (cli *Client) SetStatus(presence, status string) error {
 	urlPath := cli.BuildURL("presence", cli.UserID, "status")
 	s := struct {
 		Presence  string `json:"presence"`
 		StatusMsg string `json:"status_msg"`
 	}{presence, status}
-	err = cli.MakeRequest("PUT", urlPath, &s, nil)
-	return err
+	return cli.MakeRequest("PUT", urlPath, &s, nil)
 }
 
 // SendMessageEvent sends a message event into a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#put-matrix-client-r0-rooms-roomid-send-eventtype-txnid
@@ -537,11 +562,12 @@ func (cli *Client) SendMessageEvent(
 	roomID string,
 	eventType string,
 	contentJSON interface{},
-) (resp *RespSendEvent, err error) {
+) (*RespSendEvent, error) {
 	txnID := txnID()
 	urlPath := cli.BuildURL("rooms", roomID, "send", eventType, txnID)
-	err = cli.MakeRequest("PUT", urlPath, contentJSON, &resp)
-	return resp, err
+	var resp RespSendEvent
+	err := cli.MakeRequest("PUT", urlPath, contentJSON, &resp)
+	return &resp, err
 }
 
 // SendStateEvent sends a state event into a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#put-matrix-client-r0-rooms-roomid-state-eventtype-statekey
@@ -549,10 +575,11 @@ func (cli *Client) SendMessageEvent(
 func (cli *Client) SendStateEvent(
 	roomID, eventType, stateKey string,
 	contentJSON interface{},
-) (resp *RespSendEvent, err error) {
+) (*RespSendEvent, error) {
 	urlPath := cli.BuildURL("rooms", roomID, "state", eventType, stateKey)
-	err = cli.MakeRequest("PUT", urlPath, contentJSON, &resp)
-	return resp, err
+	var resp RespSendEvent
+	err := cli.MakeRequest("PUT", urlPath, contentJSON, &resp)
+	return &resp, err
 }
 
 // SendText sends an m.room.message event into the given room with a msgtype of m.text
@@ -599,11 +626,12 @@ func (cli *Client) SendNotice(roomID, text string) (*RespSendEvent, error) {
 }
 
 // RedactEvent redacts the given event. See http://matrix.org/docs/spec/client_server/r0.2.0.html#put-matrix-client-r0-rooms-roomid-redact-eventid-txnid
-func (cli *Client) RedactEvent(roomID, eventID string, req *ReqRedact) (resp *RespSendEvent, err error) {
+func (cli *Client) RedactEvent(roomID, eventID string, req *ReqRedact) (*RespSendEvent, error) {
 	txnID := txnID()
 	urlPath := cli.BuildURL("rooms", roomID, "redact", eventID, txnID)
-	err = cli.MakeRequest("PUT", urlPath, req, &resp)
-	return resp, err
+	var resp RespSendEvent
+	err := cli.MakeRequest("PUT", urlPath, req, &resp)
+	return &resp, err
 }
 
 // MarkRead marks eventID in roomID as read, signifying the event, and all before it have been read. See https://matrix.org/docs/spec/client_server/r0.6.0#post-matrix-client-r0-rooms-roomid-receipt-receipttype-eventid
@@ -618,87 +646,104 @@ func (cli *Client) MarkRead(roomID, eventID string) error {
 //		Preset: "public_chat",
 //	})
 //	fmt.Println("Room:", resp.RoomID)
-func (cli *Client) CreateRoom(req *ReqCreateRoom) (resp *RespCreateRoom, err error) {
+func (cli *Client) CreateRoom(req *ReqCreateRoom) (*RespCreateRoom, error) {
 	urlPath := cli.BuildURL("createRoom")
-	err = cli.MakeRequest("POST", urlPath, req, &resp)
-	return resp, err
+	var resp RespCreateRoom
+	err := cli.MakeRequest("POST", urlPath, req, &resp)
+	return &resp, err
 }
 
 // LeaveRoom leaves the given room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-rooms-roomid-leave
-func (cli *Client) LeaveRoom(roomID string) (resp *RespLeaveRoom, err error) {
+func (cli *Client) LeaveRoom(roomID string) (*RespLeaveRoom, error) {
 	u := cli.BuildURL("rooms", roomID, "leave")
-	err = cli.MakeRequest("POST", u, struct{}{}, &resp)
-	return resp, err
+	var resp RespLeaveRoom
+	err := cli.MakeRequest("POST", u, struct{}{}, &resp)
+	return &resp, err
 }
 
 // ForgetRoom forgets a room entirely. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-rooms-roomid-forget
-func (cli *Client) ForgetRoom(roomID string) (resp *RespForgetRoom, err error) {
+func (cli *Client) ForgetRoom(roomID string) (*RespForgetRoom, error) {
 	u := cli.BuildURL("rooms", roomID, "forget")
-	err = cli.MakeRequest("POST", u, struct{}{}, &resp)
-	return resp, err
+	var resp RespForgetRoom
+	err := cli.MakeRequest("POST", u, struct{}{}, &resp)
+	return &resp, err
 }
 
 // InviteUser invites a user to a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-rooms-roomid-invite
-func (cli *Client) InviteUser(roomID string, req *ReqInviteUser) (resp *RespInviteUser, err error) {
+func (cli *Client) InviteUser(roomID string, req *ReqInviteUser) (*RespInviteUser, error) {
 	u := cli.BuildURL("rooms", roomID, "invite")
-	err = cli.MakeRequest("POST", u, req, &resp)
-	return resp, err
+	var resp RespInviteUser
+	err := cli.MakeRequest("POST", u, req, &resp)
+	return &resp, err
 }
 
 // InviteUserByThirdParty invites a third-party identifier to a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#invite-by-third-party-id-endpoint
-func (cli *Client) InviteUserByThirdParty(roomID string, req *ReqInvite3PID) (resp *RespInviteUser, err error) {
+func (cli *Client) InviteUserByThirdParty(roomID string, req *ReqInvite3PID) (*RespInviteUser, error) {
 	u := cli.BuildURL("rooms", roomID, "invite")
-	err = cli.MakeRequest("POST", u, req, &resp)
-	return resp, err
+	var resp RespInviteUser
+	err := cli.MakeRequest("POST", u, req, &resp)
+	return &resp, err
 }
 
 // KickUser kicks a user from a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-rooms-roomid-kick
-func (cli *Client) KickUser(roomID string, req *ReqKickUser) (resp *RespKickUser, err error) {
+func (cli *Client) KickUser(roomID string, req *ReqKickUser) (*RespKickUser, error) {
 	u := cli.BuildURL("rooms", roomID, "kick")
-	err = cli.MakeRequest("POST", u, req, &resp)
-	return resp, err
+	var resp RespKickUser
+	err := cli.MakeRequest("POST", u, req, &resp)
+	return &resp, err
 }
 
 // BanUser bans a user from a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-rooms-roomid-ban
-func (cli *Client) BanUser(roomID string, req *ReqBanUser) (resp *RespBanUser, err error) {
+func (cli *Client) BanUser(roomID string, req *ReqBanUser) (*RespBanUser, error) {
 	u := cli.BuildURL("rooms", roomID, "ban")
-	err = cli.MakeRequest("POST", u, req, &resp)
-	return resp, err
+	var resp RespBanUser
+	err := cli.MakeRequest("POST", u, req, &resp)
+	return &resp, err
 }
 
 // UnbanUser unbans a user from a room. See http://matrix.org/docs/spec/client_server/r0.2.0.html#post-matrix-client-r0-rooms-roomid-unban
-func (cli *Client) UnbanUser(roomID string, req *ReqUnbanUser) (resp *RespUnbanUser, err error) {
+func (cli *Client) UnbanUser(roomID string, req *ReqUnbanUser) (*RespUnbanUser, error) {
 	u := cli.BuildURL("rooms", roomID, "unban")
-	err = cli.MakeRequest("POST", u, req, &resp)
-	return resp, err
+	var resp RespUnbanUser
+	err := cli.MakeRequest("POST", u, req, &resp)
+	return &resp, err
 }
 
 // UserTyping sets the typing status of the user. See https://matrix.org/docs/spec/client_server/r0.2.0.html#put-matrix-client-r0-rooms-roomid-typing-userid
-func (cli *Client) UserTyping(roomID string, typing bool, timeout int64) (resp *RespTyping, err error) {
+func (cli *Client) UserTyping(roomID string, typing bool, timeout int64) (*RespTyping, error) {
 	req := ReqTyping{Typing: typing, Timeout: timeout}
 	u := cli.BuildURL("rooms", roomID, "typing", cli.UserID)
-	err = cli.MakeRequest("PUT", u, req, &resp)
-	return resp, err
+	var resp RespTyping
+	err := cli.MakeRequest("PUT", u, req, &resp)
+	return &resp, err
 }
 
 // StateEvent gets a single state event in a room. It will attempt to JSON unmarshal into the given "outContent" struct with
 // the HTTP response body, or return an error.
 // See http://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-rooms-roomid-state-eventtype-statekey
-func (cli *Client) StateEvent(roomID, eventType, stateKey string, outContent interface{}) (err error) {
+func (cli *Client) StateEvent(roomID, eventType, stateKey string, outContent interface{}) error {
 	u := cli.BuildURL("rooms", roomID, "state", eventType, stateKey)
-	err = cli.MakeRequest("GET", u, nil, outContent)
-	return err
+	return cli.MakeRequest("GET", u, nil, outContent)
 }
 
 // UploadLink uploads an HTTP URL and then returns an MXC URI.
 func (cli *Client) UploadLink(link string) (*RespMediaUpload, error) {
-	res, err := cli.Client.Get(link)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultHTTPTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := cli.Client.Do(req)
 	if res != nil {
 		defer res.Body.Close()
 	}
 	if err != nil {
 		return nil, err
 	}
+
 	return cli.UploadToContentRepo(res.Body, res.Header.Get("Content-Type"), res.ContentLength)
 }
 
@@ -709,7 +754,10 @@ func (cli *Client) UploadToContentRepo(
 	contentType string,
 	contentLength int64,
 ) (*RespMediaUpload, error) {
-	req, err := http.NewRequest(http.MethodPost, cli.BuildBaseURL("_matrix/media/r0/upload"), content)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultHTTPTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cli.BuildBaseURL("_matrix/media/r0/upload"), content)
 	if err != nil {
 		return nil, err
 	}
@@ -728,11 +776,11 @@ func (cli *Client) UploadToContentRepo(
 		return nil, err
 	}
 
-	if res.StatusCode != http.StatusOK {
-		contents, err := io.ReadAll(res.Body)
-		if err != nil {
+	if res.StatusCode != StatusCodeOK {
+		contents, readErr := io.ReadAll(res.Body)
+		if readErr != nil {
 			return nil, HTTPError{
-				Message: "Upload request failed - Failed to read response body: " + err.Error(),
+				Message: "Upload request failed - Failed to read response body: " + readErr.Error(),
 				Code:    res.StatusCode,
 			}
 		}
@@ -744,8 +792,8 @@ func (cli *Client) UploadToContentRepo(
 	}
 
 	var m RespMediaUpload
-	if err := json.NewDecoder(res.Body).Decode(&m); err != nil {
-		return nil, err
+	if decodeErr := json.NewDecoder(res.Body).Decode(&m); decodeErr != nil {
+		return nil, decodeErr
 	}
 
 	return &m, nil
@@ -755,26 +803,28 @@ func (cli *Client) UploadToContentRepo(
 //
 // In general, usage of this API is discouraged in favour of /sync, as calling this API can race with incoming membership changes.
 // This API is primarily designed for application services which may want to efficiently look up joined members in a room.
-func (cli *Client) JoinedMembers(roomID string) (resp *RespJoinedMembers, err error) {
+func (cli *Client) JoinedMembers(roomID string) (*RespJoinedMembers, error) {
 	u := cli.BuildURL("rooms", roomID, "joined_members")
-	err = cli.MakeRequest("GET", u, nil, &resp)
-	return resp, err
+	var resp RespJoinedMembers
+	err := cli.MakeRequest("GET", u, nil, &resp)
+	return &resp, err
 }
 
 // JoinedRooms returns a list of rooms which the client is joined to. See TODO-SPEC. https://github.com/matrix-org/synapse/pull/1680
 //
 // In general, usage of this API is discouraged in favour of /sync, as calling this API can race with incoming membership changes.
 // This API is primarily designed for application services which may want to efficiently look up joined rooms.
-func (cli *Client) JoinedRooms() (resp *RespJoinedRooms, err error) {
+func (cli *Client) JoinedRooms() (*RespJoinedRooms, error) {
 	u := cli.BuildURL("joined_rooms")
-	err = cli.MakeRequest("GET", u, nil, &resp)
-	return resp, err
+	var resp RespJoinedRooms
+	err := cli.MakeRequest("GET", u, nil, &resp)
+	return &resp, err
 }
 
 // Messages returns a list of message and state events for a room. It uses
 // pagination query parameters to paginate history in the room.
 // See https://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-rooms-roomid-messages
-func (cli *Client) Messages(roomID, from, to string, dir rune, limit int) (resp *RespMessages, err error) {
+func (cli *Client) Messages(roomID, from, to string, dir rune, limit int) (*RespMessages, error) {
 	query := map[string]string{
 		"from": from,
 		"dir":  string(dir),
@@ -787,16 +837,18 @@ func (cli *Client) Messages(roomID, from, to string, dir rune, limit int) (resp 
 	}
 
 	urlPath := cli.BuildURLWithQuery([]string{"rooms", roomID, "messages"}, query)
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespMessages
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 // TurnServer returns turn server details and credentials for the client to use when initiating calls.
 // See http://matrix.org/docs/spec/client_server/r0.2.0.html#get-matrix-client-r0-voip-turnserver
-func (cli *Client) TurnServer() (resp *RespTurnServer, err error) {
+func (cli *Client) TurnServer() (*RespTurnServer, error) {
 	urlPath := cli.BuildURL("voip", "turnServer")
-	err = cli.MakeRequest("GET", urlPath, nil, &resp)
-	return resp, err
+	var resp RespTurnServer
+	err := cli.MakeRequest("GET", urlPath, nil, &resp)
+	return &resp, err
 }
 
 func txnID() string {
